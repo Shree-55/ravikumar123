@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calculator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0d0d0d;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    }
+
+    .calc {
+      width: 340px;
+      background: #1c1c1e;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.8);
+    }
+
+    /* ── Display ── */
+    .display {
+      padding: 28px 24px 18px;
+      text-align: right;
+      background: #1c1c1e;
+      min-height: 130px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .history {
+      font-size: 16px;
+      color: #888;
+      min-height: 22px;
+      margin-bottom: 6px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      direction: rtl;
+    }
+
+    .current {
+      font-size: 52px;
+      font-weight: 300;
+      color: #ffffff;
+      letter-spacing: -2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      direction: rtl;
+      line-height: 1;
+    }
+
+    /* ── Button Grid ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: #3a3a3c;
+    }
+
+    .btn {
+      height: 76px;
+      border: none;
+      font-size: 22px;
+      font-family: inherit;
+      font-weight: 400;
+      cursor: pointer;
+      transition: filter 0.1s;
+      outline: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn:active { filter: brightness(1.5); }
+
+    /* Number */
+    .n { background: #2c2c2e; color: #ffffff; }
+    .n:hover { filter: brightness(1.2); }
+
+    /* Function (AC, +/-, %) */
+    .f { background: #3a3a3c; color: #ffffff; font-size: 18px; }
+    .f:hover { filter: brightness(1.2); }
+
+    /* Operator */
+    .o { background: #ff9f0a; color: #ffffff; font-size: 26px; font-weight: 300; }
+    .o:hover { filter: brightness(1.1); }
+    .o.active-op { background: #ffffff; color: #ff9f0a; }
+
+    /* Equals */
+    .eq { background: #ff9f0a; color: #ffffff; font-size: 26px; }
+    .eq:hover { filter: brightness(1.1); }
+
+    /* Zero spans 2 cols */
+    .zero { grid-column: span 2; text-align: left; padding-left: 28px; font-size: 22px; }
+  </style>
+</head>
+<body>
+
+<div class="calc">
+  <div class="display">
+    <div class="history" id="history"></div>
+    <div class="current" id="current">0</div>
+  </div>
+
+  <div class="grid">
+    <!-- Row 1 -->
+    <button class="btn f" id="btn-ac">AC</button>
+    <button class="btn f" id="btn-sign">+/−</button>
+    <button class="btn f" id="btn-pct">%</button>
+    <button class="btn o" data-op="/">÷</button>
+
+    <!-- Row 2 -->
+    <button class="btn n" data-num="7">7</button>
+    <button class="btn n" data-num="8">8</button>
+    <button class="btn n" data-num="9">9</button>
+    <button class="btn o" data-op="*">×</button>
+
+    <!-- Row 3 -->
+    <button class="btn n" data-num="4">4</button>
+    <button class="btn n" data-num="5">5</button>
+    <button class="btn n" data-num="6">6</button>
+    <button class="btn o" data-op="-">−</button>
+
+    <!-- Row 4 -->
+    <button class="btn n" data-num="1">1</button>
+    <button class="btn n" data-num="2">2</button>
+    <button class="btn n" data-num="3">3</button>
+    <button class="btn o" data-op="+">+</button>
+
+    <!-- Row 5 -->
+    <button class="btn n zero" data-num="0">0</button>
+    <button class="btn n" id="btn-dot">.</button>
+    <button class="btn eq" id="btn-eq">=</button>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────
+  let displayVal = '0';   // what's shown on screen
+  let storedVal  = null;  // first operand
+  let operator   = null;  // pending operator
+  let waitNext   = false; // after op pressed, next digit replaces display
+
+  // ── DOM refs ───────────────────────────────────────────
+  const currentEl = document.getElementById('current');
+  const historyEl = document.getElementById('history');
+  const acBtn     = document.getElementById('btn-ac');
+
+  // ── Helpers ────────────────────────────────────────────
+  function formatNum(n) {
+    if (n === 'Error') return 'Error';
+    // Remove trailing zeros after decimal
+    let s = parseFloat(n.toPrecision(12)).toString();
+    // If very long, use toPrecision
+    if (s.replace('-','').replace('.','').length > 10) {
+      s = parseFloat(n).toPrecision(9);
+      s = parseFloat(s).toString(); // clean up trailing zeros
+    }
+    return s;
+  }
+
+  function render() {
+    currentEl.textContent = displayVal;
+    // Shrink font for long numbers
+    const len = displayVal.replace('-','').replace('.','').length;
+    if (len >= 10) currentEl.style.fontSize = '32px';
+    else if (len >= 7) currentEl.style.fontSize = '42px';
+    else currentEl.style.fontSize = '52px';
+
+    acBtn.textContent = (displayVal !== '0' || storedVal !== null) ? 'C' : 'AC';
+  }
+
+  function setOp(op) {
+    // If already has pending op and user typed a number, compute first
+    if (operator && !waitNext) {
+      compute();
+    }
+    storedVal = parseFloat(displayVal);
+    operator  = op;
+    waitNext  = true;
+    historyEl.textContent = formatNum(storedVal) + ' ' + opSymbol(op);
+    highlightOp(op);
+    render();
+  }
+
+  function compute() {
+    if (operator === null || storedVal === null) return;
+    const a = storedVal;
+    const b = parseFloat(displayVal);
+    let result;
+    switch (operator) {
+      case '+': result = a + b; break;
+      case '-': result = a - b; break;
+      case '*': result = a * b; break;
+      case '/': result = b === 0 ? 'Error' : a / b; break;
+      default:  return;
+    }
+    historyEl.textContent = formatNum(a) + ' ' + opSymbol(operator) + ' ' + formatNum(b) + ' =';
+    displayVal = result === 'Error' ? 'Error' : formatNum(result);
+    storedVal  = result === 'Error' ? null : result;
+    operator   = null;
+    waitNext   = true;
+    clearHighlight();
+    render();
+  }
+
+  function opSymbol(op) {
+    return { '+':'+', '-':'−', '*':'×', '/':'÷' }[op] || op;
+  }
+
+  function highlightOp(op) {
+    clearHighlight();
+    document.querySelectorAll('[data-op]').forEach(b => {
+      if (b.dataset.op === op) b.classList.add('active-op');
+    });
+  }
+
+  function clearHighlight() {
+    document.querySelectorAll('[data-op]').forEach(b => b.classList.remove('active-op'));
+  }
+
+  // ── Button handlers ────────────────────────────────────
+
+  // Numbers
+  document.querySelectorAll('[data-num]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = btn.dataset.num;
+      if (waitNext) {
+        displayVal = d === '0' ? '0' : d;
+        waitNext = false;
+      } else {
+        if (displayVal === '0') displayVal = d;
+        else if (displayVal.replace('-','').length < 12) displayVal += d;
+      }
+      clearHighlight();
+      render();
+    });
+  });
+
+  // Decimal
+  document.getElementById('btn-dot').addEventListener('click', () => {
+    if (waitNext) { displayVal = '0.'; waitNext = false; }
+    else if (!displayVal.includes('.')) displayVal += '.';
+    render();
+  });
+
+  // AC / C
+  acBtn.addEventListener('click', () => {
+    displayVal = '0';
+    storedVal  = null;
+    operator   = null;
+    waitNext   = false;
+    historyEl.textContent = '';
+    clearHighlight();
+    render();
+  });
+
+  // +/−
+  document.getElementById('btn-sign').addEventListener('click', () => {
+    if (displayVal === '0' || displayVal === 'Error') return;
+    displayVal = displayVal.startsWith('-') ? displayVal.slice(1) : '-' + displayVal;
+    render();
+  });
+
+  // %
+  document.getElementById('btn-pct').addEventListener('click', () => {
+    if (displayVal === 'Error') return;
+    displayVal = formatNum(parseFloat(displayVal) / 100);
+    render();
+  });
+
+  // Operators
+  document.querySelectorAll('[data-op]').forEach(btn => {
+    btn.addEventListener('click', () => setOp(btn.dataset.op));
+  });
+
+  // Equals
+  document.getElementById('btn-eq').addEventListener('click', () => compute());
+
+  // ── Keyboard ───────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if ('0123456789'.includes(e.key)) {
+      document.querySelector(`[data-num="${e.key}"]`).click();
+    } else if (e.key === '.') {
+      document.getElementById('btn-dot').click();
+    } else if (e.key === '+') {
+      document.querySelector('[data-op="+"]').click();
+    } else if (e.key === '-') {
+      document.querySelector('[data-op="-"]').click();
+    } else if (e.key === '*') {
+      document.querySelector('[data-op="*"]').click();
+    } else if (e.key === '/') {
+      e.preventDefault();
+      document.querySelector('[data-op="/"]').click();
+    } else if (e.key === 'Enter' || e.key === '=') {
+      document.getElementById('btn-eq').click();
+    } else if (e.key === 'Escape') {
+      acBtn.click();
+    } else if (e.key === 'Backspace') {
+      if (waitNext || displayVal === 'Error') return;
+      displayVal = displayVal.length > 1 ? displayVal.slice(0, -1) : '0';
+      render();
+    }
+  });
+
+  render();
+</script>
+</body>
+</html>
